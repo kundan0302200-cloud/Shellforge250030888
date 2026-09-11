@@ -3,10 +3,13 @@
 #include <string.h>
 #include <readline/history.h>
 #include <readline/readline.h>
+#include "history.h"
 #include "token.h"
 #include "lexer.h"
 #include "parser.h"
 #include "expand.h"
+#include "builtin.h"
+
 int main(void)
 {
     // Display a welcome banner when the shell starts
@@ -34,27 +37,66 @@ int main(void)
             continue;
         }
 
+       if (strcmp(line, "history") == 0)
+       {
+          print_history();
+          free(line);
+           continue;
+       }
+// milestone 1 - enabling history
+
         add_history(line);
+
+// milestone 2.1 - tokenization and lexer
+
 	lexer(line, &tokens);
+
         token_print(&tokens);
-        
+
+// milestone 2.2 - expansion of environment variables and parser
 
 	if(parser(&tokens, &pipeline))
 	{
 		expand_variables(&pipeline);
-    		pipeline_print(&pipeline);
+    	        pipeline_print(&pipeline);
 	}
-        
 
 
-        if (strcmp(line, "exit") == 0)
+	/*
+         * ------------------------------------------------
+         * BUILTIN TEST
+         * ------------------------------------------------
+         */
+
+        if (pipeline.command_count > 0)
         {
-            free(line);
-            printf("Exiting...\n");
-            break;
+            command_t *cmd =
+                &pipeline.commands[0];
+
+            if (is_builtin(cmd))
+            {
+                int result =
+                    execute_builtin(cmd);
+
+                /*
+                 * exit command
+                 */
+                if (result == 1)
+                {
+                    free(line);
+                    break;
+                }
+            }
+            else
+            {
+                printf("External command: %s\n",
+                       cmd->argv[0]);
+            }
         }
-	free(line);
-    }    
+
+       free(line);
+
+    }
+
     return 0;
 }
-
