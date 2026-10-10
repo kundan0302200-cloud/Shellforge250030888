@@ -14,6 +14,8 @@
 #include "parser.h"
 #include "executor.h"
 #include "builtin.h"
+#include "jobs.h"
+#include "job_control.h"
 
 
 /* =========================================================
@@ -32,11 +34,6 @@ static void sigchld_handler(int sig)
     int saved_errno = errno;
     (void)sig;
     child_changed = 1;
-    if (!foreground_waiting) {
-        while (waitpid(-1, NULL, WNOHANG) > 0) {
-            /* Reap completed background children. */
-        }
-    }
     errno = saved_errno;
 }
 
@@ -67,11 +64,23 @@ void setup_background_handler(void)
 /* Reap children deferred while the shell waited for foreground jobs. */
 void reap_background_processes(void)
 {
+    int status;
+    pid_t pid;
     int saved_errno = errno;
-    if (child_changed && !foreground_waiting) {
-        child_changed = 0;
-        while (waitpid(-1, NULL, WNOHANG) > 0) {
-            /* Keep collecting completed children. */
+    if (!child_changed || foreground_waiting) { errno = saved_errno; return; }
+    child_changed = 0;
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+        job_t *job = job_find_by_pgid(pid);
+        if (job == NULL) continue;
+        if (WIFSTOPPED(status)) {
+            job_stop(job->pgid);
+            fprintf(stderr, "\n[%d] Stopped %s\n", job->job_id, job->command);
+        } else if (WIFCONTINUED(status)) {
+            job_continue(job->pgid);
+        } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            job_done(job->pgid);
+            fprintf(stderr, "[%d] Done %s\n", job->job_id, job->command);
+            job_remove(job->job_id);
         }
     }
     errno = saved_errno;
@@ -215,11 +224,10 @@ int execute_command(command_t *cmd)
 
 
     /* =====================================================
-       CREATE CHILD
+       CREATE CHILD / PROCESS GROUP
        ===================================================== */
 
     foreground_waiting = !cmd->background;
-
     pid = fork();
 
 
@@ -239,6 +247,12 @@ int execute_command(command_t *cmd)
     if (pid == 0)
     {
         char *args[MAX_ARGS + 1];
+        (void)setpgid(0, 0);
+        signal(SIGINT, SIG_DFL);
+        signal(SIGQUIT, SIG_DFL);
+        signal(SIGTSTP, SIG_DFL);
+        signal(SIGTTIN, SIG_DFL);
+        signal(SIGTTOU, SIG_DFL);
 
 
         /* Apply < > >> */
@@ -299,6 +313,8 @@ int execute_command(command_t *cmd)
 
     if (cmd->background)
     {
+        /* Keep background jobs visible to the jobs builtin. */
+        job_add(pid, cmd->argv[0], JOB_RUNNING);
         printf("[Background PID: %d]\n", pid);
 
         /*
@@ -315,7 +331,8 @@ int execute_command(command_t *cmd)
        FOREGROUND PROCESS
        ===================================================== */
 
-    if (waitpid(pid, &status, 0) < 0)
+    give_terminal_to(pid);
+    if (waitpid(pid, &status, WUNTRACED) < 0)
     {
         foreground_waiting = 0;
         reap_background_processes();
@@ -323,8 +340,15 @@ int execute_command(command_t *cmd)
         return -1;
     }
 
+    take_terminal_back();
     foreground_waiting = 0;
     reap_background_processes();
+
+    if (WIFSTOPPED(status)) {
+        int job_id = job_add(pid, cmd->argv[0], JOB_STOPPED);
+        fprintf(stderr, "\n[%d] Stopped %s\n", job_id, cmd->argv[0]);
+        return 128 + SIGTSTP;
+    }
 
     if (WIFEXITED(status))
     {
@@ -447,6 +471,12 @@ int execute_pipeline(pipeline_t *pipeline)
 
         if (pids[i] == 0)
         {
+            (void)setpgid(0, i == 0 ? 0 : pids[0]);
+            signal(SIGINT, SIG_DFL);
+            signal(SIGQUIT, SIG_DFL);
+            signal(SIGTSTP, SIG_DFL);
+            signal(SIGTTIN, SIG_DFL);
+            signal(SIGTTOU, SIG_DFL);
             command_t *cmd =
                 &pipeline->commands[i];
 
@@ -571,6 +601,8 @@ int execute_pipeline(pipeline_t *pipeline)
            ================================================= */
 
 
+        (void)setpgid(pids[i], i == 0 ? pids[i] : pids[0]);
+
         /* Close previous read descriptor */
 
         if (previous_read != -1)
@@ -601,6 +633,8 @@ int execute_pipeline(pipeline_t *pipeline)
 
     if (background)
     {
+        /* Register the process-group leader for jobs/fg/bg. */
+        job_add(pids[0], pipeline->commands[0].argv[0], JOB_RUNNING);
         printf(
             "[Background Pipeline PID: %d]\n",
             pids[0]
@@ -623,6 +657,7 @@ int execute_pipeline(pipeline_t *pipeline)
        Wait for every process.
        ===================================================== */
 
+    give_terminal_to(pids[0]);
     for (i = 0; i < command_count; i++)
     {
         status = 0;
@@ -657,6 +692,7 @@ int execute_pipeline(pipeline_t *pipeline)
     }
 
 
+    take_terminal_back();
     foreground_waiting = 0;
     reap_background_processes();
     return final_status;

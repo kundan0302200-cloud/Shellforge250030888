@@ -12,6 +12,10 @@
 
 #include "builtin.h"
 #include "history.h"
+#include "jobs.h"
+#include "job_control.h"
+#include <signal.h>
+#include <sys/wait.h>
 
 /* Built-ins run in the shell process unless used in a pipeline/background. */
 static int builtin_cd(command_t *cmd)
@@ -104,6 +108,12 @@ static int builtin_help(command_t *cmd)
     puts("  which COMMAND        Locate an executable in PATH");
     puts("  export NAME=VALUE    Set an environment variable");
     puts("  unset NAME           Remove an environment variable");
+    puts("  jobs                 List active and stopped jobs");
+    puts("  fg JOB_ID            Resume a job in the foreground");
+    puts("  bg JOB_ID            Resume a stopped job in the background");
+    puts("  jobs                 List background/stopped jobs");
+    puts("  fg JOB_ID            Bring a job to the foreground");
+    puts("  bg JOB_ID            Resume a stopped job in background");
     puts("  exit / quit          Leave ShellForge");
     puts("");
     puts("Shell operators: |, <, >, >>, &, and $VARIABLE expansion.");
@@ -321,11 +331,95 @@ int is_builtin(const command_t *cmd)
     static const char *names[] = {
         "cd", "pwd", "echo", "clear", "help", "commands", "whoami",
         "history", "hostname", "sysinfo", "date", "cinfo", "dir",
-        "which", "export", "unset", "exit", "quit", NULL
+        "which", "export", "unset", "jobs", "fg", "bg", "exit", "quit", NULL
     };
     if (cmd == NULL || cmd->argc == 0 || cmd->argv[0] == NULL) return 0;
     for (int i = 0; names[i] != NULL; i++)
         if (strcmp(cmd->argv[0], names[i]) == 0) return 1;
+    return 0;
+}
+
+static int parse_job_id(command_t *cmd, const char *name)
+{
+    char *end = NULL;
+    long value;
+    if (cmd->argc != 2) {
+        fprintf(stderr, "%s: usage: %s JOB_ID\n", name, name);
+        return -1;
+    }
+    value = strtol(cmd->argv[1], &end, 10);
+    if (end == cmd->argv[1] || *end != '\0' || value <= 0 || value > 2147483647L) {
+        fprintf(stderr, "%s: invalid job id: %s\n", name, cmd->argv[1]);
+        return -1;
+    }
+    return (int)value;
+}
+
+static int builtin_jobs(command_t *cmd)
+{
+    if (cmd->argc != 1) {
+        fprintf(stderr, "jobs: usage: jobs\n");
+        return -1;
+    }
+    jobs_print();
+    return 0;
+}
+
+static int builtin_bg(command_t *cmd)
+{
+    int id = parse_job_id(cmd, "bg");
+    if (id < 0) return -1;
+    job_t *job = job_find(id);
+    if (job == NULL) {
+        fprintf(stderr, "bg: no such job: %d\n", id);
+        return -1;
+    }
+    if (kill(-job->pgid, SIGCONT) < 0) {
+        perror("bg: SIGCONT");
+        return -1;
+    }
+    job_continue(job->pgid);
+    printf("[%d] %s &\n", job->job_id, job->command);
+    return 0;
+}
+
+static int builtin_fg(command_t *cmd)
+{
+    int id = parse_job_id(cmd, "fg");
+    if (id < 0) return -1;
+    job_t *job = job_find(id);
+    if (job == NULL) {
+        fprintf(stderr, "fg: no such job: %d\n", id);
+        return -1;
+    }
+    pid_t pgid = job->pgid;
+    int status;
+    give_terminal_to(pgid);
+    if (job->state == JOB_STOPPED && kill(-pgid, SIGCONT) < 0) {
+        perror("fg: SIGCONT");
+        take_terminal_back();
+        return -1;
+    }
+    job_continue(pgid);
+    while (1) {
+        pid_t result = waitpid(-pgid, &status, WUNTRACED);
+        if (result < 0) {
+            if (errno == EINTR) continue;
+            if (errno != ECHILD) perror("fg: waitpid");
+            break;
+        }
+        if (WIFSTOPPED(status)) {
+            job_stop(pgid);
+            break;
+        }
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            /* For a single-process job, completion is definitive. */
+            job_done(pgid);
+            break;
+        }
+    }
+    take_terminal_back();
+    if (job->state == JOB_DONE) job_remove(id);
     return 0;
 }
 
@@ -351,6 +445,9 @@ int execute_builtin(command_t *cmd)
     if (strcmp(name, "which") == 0) return builtin_which(cmd);
     if (strcmp(name, "export") == 0) return builtin_export(cmd);
     if (strcmp(name, "unset") == 0) return builtin_unset(cmd);
+    if (strcmp(name, "jobs") == 0) return builtin_jobs(cmd);
+    if (strcmp(name, "fg") == 0) return builtin_fg(cmd);
+    if (strcmp(name, "bg") == 0) return builtin_bg(cmd);
     if (strcmp(name, "exit") == 0) return builtin_exit(cmd);
     return -1;
 }
