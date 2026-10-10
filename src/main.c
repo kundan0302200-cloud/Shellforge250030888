@@ -9,6 +9,7 @@
 #include "parser.h"
 #include "expand.h"
 #include "builtin.h"
+#include "executor.h"
 
 int main(void)
 {
@@ -18,6 +19,14 @@ int main(void)
     printf(" A Unix Style Shell written in C\n");
     printf("=====================================\n");
 
+ /* =============================================
+       INSTALL BACKGROUND PROCESS HANDLER
+       ============================================= */
+
+    setup_background_handler();
+
+
+ using_history();
  token_list_t tokens;
  pipeline_t pipeline;
  
@@ -51,52 +60,27 @@ int main(void)
 
 	lexer(line, &tokens);
 
-        token_print(&tokens);
+        // token_print(&tokens);
 
 // milestone 2.2 - expansion of environment variables and parser
 
 	if(parser(&tokens, &pipeline))
 	{
 		expand_variables(&pipeline);
-    	        pipeline_print(&pipeline);
+    	//	pipeline_print(&pipeline);
 	}
 
 
-	/*
-         * ------------------------------------------------
-         * BUILTIN TEST
-         * ------------------------------------------------
-         */
-
-        if (pipeline.command_count > 0)
-        {
-            command_t *cmd =
-                &pipeline.commands[0];
-
-            if (is_builtin(cmd))
-            {
-                int result =
-                    execute_builtin(cmd);
-
-                /*
-                 * exit command
-                 */
-                if (result == 1)
-                {
-                    free(line);
-                    break;
-                }
+	if (pipeline.command_count == 1 &&  pipeline.commands[0].argc > 0 && strcmp(pipeline.commands[0].argv[0],"exit") == 0)
+         {
+                free(line);
+                break;
             }
-            else
-            {
-                printf("External command: %s\n",
-                       cmd->argv[0]);
-            }
-        }
+
+        execute_pipeline(&pipeline);
 
        free(line);
 
     }
-
     return 0;
 }
