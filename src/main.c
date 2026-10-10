@@ -27,12 +27,14 @@ int main(void)
     token_list_t tokens;
     pipeline_t pipeline;
     char *line;
+    int exit_status = 0;
 
     show_banner();
     setup_background_handler();
     using_history();
 
     while (1) {
+        reap_background_processes();
         char prompt[512];
         char cwd[400];
         if (getcwd(cwd, sizeof(cwd)) != NULL) {
@@ -68,19 +70,18 @@ int main(void)
         if (pipeline.command_count == 1 && pipeline.commands[0].argc > 0 &&
             (strcmp(pipeline.commands[0].argv[0], "exit") == 0 ||
              strcmp(pipeline.commands[0].argv[0], "quit") == 0)) {
+            int has_explicit_status = pipeline.commands[0].argc > 1;
             int status = execute_builtin(&pipeline.commands[0]);
             free(line);
-            if (status == 1) break;
-            if (status >= 0) {
-                /* A numeric exit status also exits; zero is handled above. */
-                break;
-            }
-            continue;
+            if (status < 0) continue;
+            exit_status = has_explicit_status ? status : 0;
+            break;
         }
 
         expand_variables(&pipeline);
         (void)execute_pipeline(&pipeline);
+        reap_background_processes();
         free(line);
     }
-    return 0;
+    return exit_status;
 }
