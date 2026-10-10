@@ -1,6 +1,8 @@
-#include <stdio.h> 
-#include <stdlib.h> 
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <readline/history.h>
 #include <readline/readline.h>
 #include "history.h"
@@ -11,76 +13,75 @@
 #include "builtin.h"
 #include "executor.h"
 
+static void show_banner(void)
+{
+    puts("============================================");
+    puts("             ShellForge 2.0");
+    puts("     A lightweight Unix-style shell in C");
+    puts("============================================");
+    puts("Type 'help' or 'commands' to see available commands.");
+}
+
 int main(void)
 {
-    // Display a welcome banner when the shell starts
-    printf("=====================================\n");
-    printf("      Shellforge \n");
-    printf(" A Unix Style Shell written in C\n");
-    printf("=====================================\n");
+    token_list_t tokens;
+    pipeline_t pipeline;
+    char *line;
+    int exit_status = 0;
 
- /* =============================================
-       INSTALL BACKGROUND PROCESS HANDLER
-       ============================================= */
-
+    show_banner();
     setup_background_handler();
+    using_history();
 
+    while (1) {
+        reap_background_processes();
+        char prompt[512];
+        char cwd[400];
+        if (getcwd(cwd, sizeof(cwd)) != NULL) {
+            const char *home = getenv("HOME");
+            if (home != NULL && strncmp(cwd, home, strlen(home)) == 0 &&
+                (cwd[strlen(home)] == '/' || cwd[strlen(home)] == '\0')) {
+                snprintf(prompt, sizeof(prompt), "forge:%s%s > ",
+                         "~", cwd + strlen(home));
+            } else {
+                snprintf(prompt, sizeof(prompt), "forge:%s > ", cwd);
+            }
+        } else {
+            snprintf(prompt, sizeof(prompt), "forge > ");
+        }
 
- using_history();
- token_list_t tokens;
- pipeline_t pipeline;
- 
- char *line;
-
-    while (1)
-    {
-        line = readline("shellforge$ ");
-        if (line == NULL)
-        {
-            printf("\nGoodbye!\n");
+        line = readline(prompt);
+        if (line == NULL) {
+            puts("\nShellForge closed.");
             break;
         }
-        if (strlen(line) == 0)
-        {
+        if (line[0] == '\0') {
             free(line);
             continue;
         }
 
-       if (strcmp(line, "history") == 0)
-       {
-          print_history();
-          free(line);
-           continue;
-       }
-// milestone 1 - enabling history
-
         add_history(line);
+        lexer(line, &tokens);
+        if (!parser(&tokens, &pipeline)) {
+            free(line);
+            continue;
+        }
 
-// milestone 2.1 - tokenization and lexer
+        if (pipeline.command_count == 1 && pipeline.commands[0].argc > 0 &&
+            (strcmp(pipeline.commands[0].argv[0], "exit") == 0 ||
+             strcmp(pipeline.commands[0].argv[0], "quit") == 0)) {
+            int has_explicit_status = pipeline.commands[0].argc > 1;
+            int status = execute_builtin(&pipeline.commands[0]);
+            free(line);
+            if (status < 0) continue;
+            exit_status = has_explicit_status ? status : 0;
+            break;
+        }
 
-	lexer(line, &tokens);
-
-        // token_print(&tokens);
-
-// milestone 2.2 - expansion of environment variables and parser
-
-	if(parser(&tokens, &pipeline))
-	{
-		expand_variables(&pipeline);
-    	//	pipeline_print(&pipeline);
-	}
-
-
-	if (pipeline.command_count == 1 &&  pipeline.commands[0].argc > 0 && strcmp(pipeline.commands[0].argv[0],"exit") == 0)
-         {
-                free(line);
-                break;
-            }
-
-        execute_pipeline(&pipeline);
-
-       free(line);
-
+        expand_variables(&pipeline);
+        (void)execute_pipeline(&pipeline);
+        reap_background_processes();
+        free(line);
     }
-    return 0;
+    return exit_status;
 }

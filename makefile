@@ -1,9 +1,17 @@
-CC=gcc
-CFLAGS=-Wall -Wextra -std=c11 -Iinclude 
-SRC     := $(wildcard src/*.c)
-TARGET=shellforge
-$(TARGET): $(SRC) 
-	$(CC) $(CFLAGS) $(SRC) -lreadline -o $(TARGET)
+CC := gcc
+CFLAGS := -Wall -Wextra -Wpedantic -std=c11 -D_POSIX_C_SOURCE=200809L -Iinclude
+LDLIBS := -lreadline
+SRC := $(wildcard src/*.c)
+TARGET := shellforge
+
+.PHONY: all clean run
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(CC) $(CFLAGS) $(SRC) $(LDLIBS) -o $@
+
+run: $(TARGET)
+	./$(TARGET)
+
 clean:
-	rm -f $(TARGET)
-.PHONY: clean
+	rm -f $(TARGET) a.out
