@@ -344,12 +344,12 @@ static int parse_job_id(command_t *cmd, const char *name)
     char *end = NULL;
     long value;
     if (cmd->argc != 2) {
-        fprintf(stderr, "%s: usage: %s JOB_ID\\n", name, name);
+        fprintf(stderr, "%s: usage: %s JOB_ID\n", name, name);
         return -1;
     }
     value = strtol(cmd->argv[1], &end, 10);
-    if (end == cmd->argv[1] || *end != '\\0' || value <= 0 || value > 2147483647L) {
-        fprintf(stderr, "%s: invalid job id: %s\\n", name, cmd->argv[1]);
+    if (end == cmd->argv[1] || *end != '\0' || value <= 0 || value > 2147483647L) {
+        fprintf(stderr, "%s: invalid job id: %s\n", name, cmd->argv[1]);
         return -1;
     }
     return (int)value;
@@ -358,7 +358,7 @@ static int parse_job_id(command_t *cmd, const char *name)
 static int builtin_jobs(command_t *cmd)
 {
     if (cmd->argc != 1) {
-        fprintf(stderr, "jobs: usage: jobs\\n");
+        fprintf(stderr, "jobs: usage: jobs\n");
         return -1;
     }
     jobs_print();
@@ -371,7 +371,7 @@ static int builtin_bg(command_t *cmd)
     if (id < 0) return -1;
     job_t *job = job_find(id);
     if (job == NULL) {
-        fprintf(stderr, "bg: no such job: %d\\n", id);
+        fprintf(stderr, "bg: no such job: %d\n", id);
         return -1;
     }
     if (kill(-job->pgid, SIGCONT) < 0) {
@@ -379,7 +379,7 @@ static int builtin_bg(command_t *cmd)
         return -1;
     }
     job_continue(job->pgid);
-    printf("[%d] %s &\\n", job->job_id, job->command);
+    printf("[%d] %s &\n", job->job_id, job->command);
     return 0;
 }
 
@@ -389,7 +389,7 @@ static int builtin_fg(command_t *cmd)
     if (id < 0) return -1;
     job_t *job = job_find(id);
     if (job == NULL) {
-        fprintf(stderr, "fg: no such job: %d\\n", id);
+        fprintf(stderr, "fg: no such job: %d\n", id);
         return -1;
     }
     pid_t pgid = job->pgid;
