@@ -313,6 +313,8 @@ int execute_command(command_t *cmd)
 
     if (cmd->background)
     {
+        /* Keep background jobs visible to the jobs builtin. */
+        job_add(pid, cmd->argv[0], JOB_RUNNING);
         printf("[Background PID: %d]\n", pid);
 
         /*
@@ -631,6 +633,8 @@ int execute_pipeline(pipeline_t *pipeline)
 
     if (background)
     {
+        /* Register the process-group leader for jobs/fg/bg. */
+        job_add(pids[0], pipeline->commands[0].argv[0], JOB_RUNNING);
         printf(
             "[Background Pipeline PID: %d]\n",
             pids[0]
