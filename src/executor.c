@@ -22,24 +22,23 @@
    This handler prevents zombie processes.
    ========================================================= */
 
+/* The signal handler must not reap children that foreground waitpid()
+   calls still need to collect. */
+static volatile sig_atomic_t foreground_waiting = 0;
+static volatile sig_atomic_t child_changed = 0;
+
 static void sigchld_handler(int sig)
 {
     int saved_errno = errno;
-
     (void)sig;
-
-    /*
-     * Reap all finished child processes.
-     */
-
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-    {
-        /* Keep collecting finished children */
+    child_changed = 1;
+    if (!foreground_waiting) {
+        while (waitpid(-1, NULL, WNOHANG) > 0) {
+            /* Reap completed background children. */
+        }
     }
-
     errno = saved_errno;
 }
-
 
 /* =========================================================
    INSTALL SIGCHLD HANDLER
@@ -64,6 +63,19 @@ void setup_background_handler(void)
     }
 }
 
+
+/* Reap children deferred while the shell waited for foreground jobs. */
+void reap_background_processes(void)
+{
+    int saved_errno = errno;
+    child_changed = 0;
+    if (!foreground_waiting) {
+        while (waitpid(-1, NULL, WNOHANG) > 0) {
+            /* Keep collecting completed children. */
+        }
+    }
+    errno = saved_errno;
+}
 
 /* =========================================================
    APPLY I/O REDIRECTION
@@ -206,13 +218,16 @@ int execute_command(command_t *cmd)
        CREATE CHILD
        ===================================================== */
 
+    foreground_waiting = !cmd->background;
+
     pid = fork();
 
 
     if (pid < 0)
     {
+        foreground_waiting = 0;
+        reap_background_processes();
         perror("fork");
-
         return -1;
     }
 
@@ -302,17 +317,19 @@ int execute_command(command_t *cmd)
 
     if (waitpid(pid, &status, 0) < 0)
     {
+        foreground_waiting = 0;
+        reap_background_processes();
         perror("waitpid");
-
         return -1;
     }
 
+    foreground_waiting = 0;
+    reap_background_processes();
 
     if (WIFEXITED(status))
     {
         return WEXITSTATUS(status);
     }
-
 
     return -1;
 }
@@ -383,6 +400,8 @@ int execute_pipeline(pipeline_t *pipeline)
        MULTI-STAGE PIPELINE
        ===================================================== */
 
+    foreground_waiting = !background;
+
     for (i = 0; i < command_count; i++)
     {
         int pipefd[2];
@@ -398,8 +417,9 @@ int execute_pipeline(pipeline_t *pipeline)
         {
             if (pipe(pipefd) < 0)
             {
+                foreground_waiting = 0;
+                reap_background_processes();
                 perror("pipe");
-
                 return -1;
             }
         }
@@ -414,8 +434,9 @@ int execute_pipeline(pipeline_t *pipeline)
 
         if (pids[i] < 0)
         {
+            foreground_waiting = 0;
+            reap_background_processes();
             perror("fork");
-
             return -1;
         }
 
@@ -636,5 +657,7 @@ int execute_pipeline(pipeline_t *pipeline)
     }
 
 
+    foreground_waiting = 0;
+    reap_background_processes();
     return final_status;
 }
