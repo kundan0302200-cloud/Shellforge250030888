@@ -74,12 +74,12 @@ void reap_background_processes(void)
         if (job == NULL) continue;
         if (WIFSTOPPED(status)) {
             job_stop(job->pgid);
-            fprintf(stderr, "\\n[%d] Stopped %s\\n", job->job_id, job->command);
+            fprintf(stderr, "\n[%d] Stopped %s\n", job->job_id, job->command);
         } else if (WIFCONTINUED(status)) {
             job_continue(job->pgid);
         } else if (WIFEXITED(status) || WIFSIGNALED(status)) {
             job_done(job->pgid);
-            fprintf(stderr, "[%d] Done %s\\n", job->job_id, job->command);
+            fprintf(stderr, "[%d] Done %s\n", job->job_id, job->command);
             job_remove(job->job_id);
         }
     }
@@ -346,7 +346,7 @@ int execute_command(command_t *cmd)
 
     if (WIFSTOPPED(status)) {
         int job_id = job_add(pid, cmd->argv[0], JOB_STOPPED);
-        fprintf(stderr, "\\n[%d] Stopped %s\\n", job_id, cmd->argv[0]);
+        fprintf(stderr, "\n[%d] Stopped %s\n", job_id, cmd->argv[0]);
         return 128 + SIGTSTP;
     }
 
