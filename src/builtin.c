@@ -111,6 +111,9 @@ static int builtin_help(command_t *cmd)
     puts("  jobs                 List active and stopped jobs");
     puts("  fg JOB_ID            Resume a job in the foreground");
     puts("  bg JOB_ID            Resume a stopped job in the background");
+    puts("  jobs                 List background/stopped jobs");
+    puts("  fg JOB_ID            Bring a job to the foreground");
+    puts("  bg JOB_ID            Resume a stopped job in background");
     puts("  exit / quit          Leave ShellForge");
     puts("");
     puts("Shell operators: |, <, >, >>, &, and $VARIABLE expansion.");
