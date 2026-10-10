@@ -12,6 +12,8 @@
 #include "expand.h"
 #include "builtin.h"
 #include "executor.h"
+#include "jobs.h"
+#include "job_control.h"
 
 static void show_banner(void)
 {
@@ -30,6 +32,8 @@ int main(void)
     int exit_status = 0;
 
     show_banner();
+    jobs_init();
+    job_control_init();
     setup_background_handler();
     using_history();
 
