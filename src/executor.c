@@ -68,8 +68,8 @@ void setup_background_handler(void)
 void reap_background_processes(void)
 {
     int saved_errno = errno;
-    child_changed = 0;
-    if (!foreground_waiting) {
+    if (child_changed && !foreground_waiting) {
+        child_changed = 0;
         while (waitpid(-1, NULL, WNOHANG) > 0) {
             /* Keep collecting completed children. */
         }
